@@ -24,7 +24,7 @@ for t in tables:
 print()
 print("=== iris_yolo_scan_results (last 5 rows) ===")
 cur.execute("""
-    SELECT store, date::text, camera, time::text, image_name,
+    SELECT store_code, date::text, camera, time::text, image_name,
            yolo_person_count, round(yolo_confidence::numeric,2), review_status
     FROM iris_yolo_scan_results
     ORDER BY processed_at DESC LIMIT 5

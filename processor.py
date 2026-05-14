@@ -14,25 +14,25 @@ def _build_output_key(s3_prefix: str, date_folder: str, filename: str) -> str:
     return f"{s3_prefix}/{_RELEVANT_FOLDER}/{date_folder}/{filename}"
 
 
-def process_store_date(store_name: str, date_str: str) -> dict:
-    store = load_store(store_name)
+def process_store_date(short_code: str, date_str: str) -> dict:
+    store = load_store(short_code)
+    store_code = store["store_s3_code"]   # canonical short code from DB
     bucket = store.get("s3_bucket") or S3_BUCKET
     s3_prefix = store["s3_prefix"]
 
-    # Auto-detect the S3 folder name regardless of date format
     date_folder = find_date_folder(bucket, s3_prefix, date_str)
     if date_folder is None:
-        logger.warning(f"[{store_name}] No S3 folder found for date '{date_str}' under {s3_prefix}/")
+        logger.warning(f"[{store_code}] No S3 folder found for date '{date_str}' under {s3_prefix}/")
         return {"total": 0, "relevant": 0, "not_relevant": 0,
                 "uploaded": 0, "duplicate": 0, "failed": 0, "db_rows": 0}
 
     scan_date = parse_any_date(date_str)
     input_prefix = f"{s3_prefix}/{date_folder}"
 
-    logger.info(f"[{store_name}] Matched folder '{date_folder}' for date '{date_str}'")
-    logger.info(f"[{store_name}] Listing s3://{bucket}/{input_prefix}")
+    logger.info(f"[{store_code}] Matched folder '{date_folder}' for date '{date_str}'")
+    logger.info(f"[{store_code}] Listing s3://{bucket}/{input_prefix}")
     image_keys = list_images(bucket, input_prefix)
-    logger.info(f"[{store_name}] Found {len(image_keys)} images")
+    logger.info(f"[{store_code}] Found {len(image_keys)} images")
 
     stats = {
         "total": 0, "relevant": 0, "not_relevant": 0,
@@ -68,7 +68,7 @@ def process_store_date(store_name: str, date_str: str) -> dict:
                 logger.debug(f"  Not relevant: {filename} (conf={confidence:.2f})")
 
             upsert_scan_result(
-                store=store_name,
+                store_code=store_code,
                 date=scan_date,
                 camera=camera,
                 time_str=time_str,
@@ -83,7 +83,7 @@ def process_store_date(store_name: str, date_str: str) -> dict:
             stats["failed"] += 1
             logger.error(f"  FAILED: {filename} — {e}")
             upsert_scan_result(
-                store=store_name,
+                store_code=store_code,
                 date=scan_date,
                 camera=camera,
                 time_str=time_str,
@@ -100,5 +100,5 @@ def process_store_date(store_name: str, date_str: str) -> dict:
             if tmp_path and os.path.exists(tmp_path):
                 os.unlink(tmp_path)
 
-    print_summary(store_name, date_str, stats)
+    print_summary(store_code, date_str, stats)
     return stats

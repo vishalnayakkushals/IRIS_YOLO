@@ -8,7 +8,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="IRIS YOLO — S3 relevance detection pipeline"
     )
-    parser.add_argument("--store", type=str, help="Store name (must match stores.store_name in DB)")
+    parser.add_argument("--store", type=str, help="Store short code (e.g. BLRRRN)")
     parser.add_argument("--date", type=str, required=True, help="Date to scan (YYYY-MM-DD)")
     parser.add_argument(
         "--all-stores", action="store_true",
@@ -21,9 +21,9 @@ def main():
         logger.info(f"Running {len(stores)} active stores for {args.date}")
         for store in stores:
             try:
-                process_store_date(store["store_name"], args.date)
+                process_store_date(store["store_s3_code"], args.date)
             except Exception as e:
-                logger.error(f"Store '{store['store_name']}' failed: {e}")
+                logger.error(f"Store '{store['store_s3_code']}' failed: {e}")
     elif args.store:
         process_store_date(args.store, args.date)
     else:

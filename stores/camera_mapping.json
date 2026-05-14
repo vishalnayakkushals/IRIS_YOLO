@@ -1,6 +1,6 @@
 {
   "_note": "Camera-to-floor/zone mapping. Add per store when needed.",
-  "RRNAGAR BLR": {
+  "BLRRRN": {
     "D01": "entrance",
     "D09": "floor_1",
     "D13": "floor_2"

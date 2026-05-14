@@ -58,6 +58,8 @@ IRIS_YOLO/
 │   ├── setup_db.py         ← create DB tables (run once)
 │   ├── validate_env.py     ← check all connections before running
 │   ├── backfill_store.py   ← scan a date range for a store
+│   ├── update_store_path.py ← change S3 prefix for a store
+│   ├── download_output.py  ← download S3 images or export DB CSV
 │   └── run_store_scan.py   ← alternate entry point
 ├── stores/
 │   └── camera_mapping.json ← camera → floor/zone mapping (future)
@@ -130,8 +132,9 @@ cd C:\Users\Kushals.DESKTOP-D51MT8S\Desktop\Github\IRIS_YOLO
 
 ### Run one store for one date
 ```powershell
-.\venv\Scripts\python.exe run.py --store "RRNAGAR BLR" --date "2026-05-14"
+.\venv\Scripts\python.exe run.py --store BLRRRN --date "2026-05-14"
 ```
+> `--store` now takes the **short code** (e.g. `BLRRRN`), not the store name.
 
 ### Run all active stores for one date
 ```powershell
@@ -146,7 +149,7 @@ $today = (Get-Date).ToString("yyyy-MM-dd")
 
 ### Backfill a date range for one store
 ```powershell
-.\venv\Scripts\python.exe scripts/backfill_store.py --store "RRNAGAR BLR" --from-date "2026-05-01" --to-date "2026-05-14"
+.\venv\Scripts\python.exe scripts/backfill_store.py --store BLRRRN --from-date "2026-05-01" --to-date "2026-05-14"
 ```
 
 ### Check today's log
@@ -187,28 +190,34 @@ SELECT store_name, store_s3_code, s3_prefix, is_active FROM iris_yolo_stores ORD
 ### Add a new store
 ```sql
 INSERT INTO iris_yolo_stores (store_name, store_s3_code, s3_bucket, s3_prefix)
-VALUES ('STORE NAME HERE', 'S3CODE', 'middle-ware', 'iris/S3CODE')
+VALUES ('GoFrugal Store Name', 'S3CODE', 'middle-ware', 'iris/S3CODE')
 ON CONFLICT (store_name) DO NOTHING;
 ```
-- `store_name` = human-readable name used in CLI (`--store "STORE NAME"`)
-- `store_s3_code` = short code matching the S3 folder (e.g. `BLRRRN`)
+- `store_s3_code` = **primary key** — short code matching the S3 folder (e.g. `BLRRRN`). Use this in `--store` CLI arg.
+- `store_name` = GoFrugal canonical name (human-readable, from store master CSV)
 - `s3_prefix` = full S3 prefix path (e.g. `iris/BLRRRN`)
 
-### Update a store's S3 path
+### Update a store's S3 path (interactive script)
+```powershell
+.\venv\Scripts\python.exe scripts/update_store_path.py --code BLRRRN --new-prefix iris/BLRRRN
+```
+This shows the old and new path and asks for confirmation before updating.
+
+### Update a store's S3 path (direct SQL)
 ```sql
 UPDATE iris_yolo_stores
-SET s3_prefix = 'iris/NEWCODE', store_s3_code = 'NEWCODE', updated_at = NOW()
-WHERE store_name = 'STORE NAME HERE';
+SET s3_prefix = 'iris/NEWCODE', updated_at = NOW()
+WHERE store_s3_code = 'S3CODE';
 ```
 
 ### Deactivate a store (exclude from --all-stores)
 ```sql
-UPDATE iris_yolo_stores SET is_active = FALSE WHERE store_name = 'STORE NAME HERE';
+UPDATE iris_yolo_stores SET is_active = FALSE WHERE store_s3_code = 'S3CODE';
 ```
 
 ### Reactivate a store
 ```sql
-UPDATE iris_yolo_stores SET is_active = TRUE WHERE store_name = 'STORE NAME HERE';
+UPDATE iris_yolo_stores SET is_active = TRUE WHERE store_s3_code = 'S3CODE';
 ```
 
 ### Bulk add stores (from a list)
@@ -233,27 +242,27 @@ Run any of these by pasting into the Python DB one-liner from Section 5.
 
 ### How many images scanned per store per date
 ```sql
-SELECT store, date, COUNT(*) as total,
+SELECT store_code, date, COUNT(*) as total,
        SUM(CASE WHEN yolo_person_count > 0 THEN 1 ELSE 0 END) as relevant,
        SUM(CASE WHEN yolo_person_count = 0 THEN 1 ELSE 0 END) as not_relevant
 FROM iris_yolo_scan_results
-GROUP BY store, date
-ORDER BY date DESC, store;
+GROUP BY store_code, date
+ORDER BY date DESC, store_code;
 ```
 
 ### Check results for a specific store and date
 ```sql
-SELECT store, date, camera, time, image_name,
+SELECT store_code, date, camera, time, image_name,
        yolo_person_count, round(yolo_confidence::numeric, 2),
        review_status, drive_link
 FROM iris_yolo_scan_results
-WHERE store = 'RRNAGAR BLR' AND date = '2026-05-14'
+WHERE store_code = 'BLRRRN' AND date = '2026-05-14'
 ORDER BY time;
 ```
 
 ### Find all failed images
 ```sql
-SELECT store, date, image_name, reviewer_comment
+SELECT store_code, date, image_name, reviewer_comment
 FROM iris_yolo_scan_results
 WHERE review_status = 'error'
 ORDER BY processed_at DESC;
@@ -261,46 +270,52 @@ ORDER BY processed_at DESC;
 
 ### Find all relevant images with drive links
 ```sql
-SELECT store, date, camera, time, image_name, drive_link, yolo_person_count
+SELECT store_code, date, camera, time, image_name, drive_link, yolo_person_count
 FROM iris_yolo_scan_results
 WHERE yolo_person_count > 0 AND drive_link IS NOT NULL
-ORDER BY date DESC, store, time;
+ORDER BY date DESC, store_code, time;
 ```
 
 ### Which dates have been scanned for a store
 ```sql
 SELECT DISTINCT date, COUNT(*) as images
 FROM iris_yolo_scan_results
-WHERE store = 'RRNAGAR BLR'
+WHERE store_code = 'BLRRRN'
 GROUP BY date ORDER BY date DESC;
 ```
 
 ### Total persons detected per store (all time)
 ```sql
-SELECT store, SUM(yolo_person_count) as total_persons,
+SELECT store_code, SUM(yolo_person_count) as total_persons,
        COUNT(*) as total_images,
        SUM(CASE WHEN yolo_person_count > 0 THEN 1 ELSE 0 END) as relevant_images
 FROM iris_yolo_scan_results
-GROUP BY store ORDER BY total_persons DESC;
+GROUP BY store_code ORDER BY total_persons DESC;
 ```
 
 ### Delete scan results to reprocess a date (clean rerun)
 ```sql
 DELETE FROM iris_yolo_scan_results
-WHERE store = 'RRNAGAR BLR' AND date = '2026-05-14';
+WHERE store_code = 'BLRRRN' AND date = '2026-05-14';
 ```
 Then run the scan again — it will reprocess and re-upload everything.
 
-### Export results to CSV (Python)
+### Export results to CSV (script — easiest way)
+```powershell
+.\venv\Scripts\python.exe scripts/download_output.py --code BLRRRN --date 2026-05-14 --mode csv
+```
+Output saved to `output/BLRRRN/2026-05-14/scan_results_BLRRRN_2026-05-14.csv`.
+
+### Export results to CSV (Python one-liner)
 ```powershell
 .\venv\Scripts\python.exe -c "
 from dotenv import load_dotenv; load_dotenv()
 from db import get_connection
 import csv, datetime
 conn = get_connection(); cur = conn.cursor()
-cur.execute('SELECT store, date, camera, time, image_name, drive_link, yolo_person_count, yolo_confidence, review_status, reviewer_comment FROM iris_yolo_scan_results ORDER BY date DESC, store, time')
+cur.execute('SELECT store_code, date, camera, time, image_name, drive_link, yolo_person_count, yolo_confidence, review_status, reviewer_comment FROM iris_yolo_scan_results ORDER BY date DESC, store_code, time')
 rows = cur.fetchall()
-cols = ['Store','Date','Camera','Time','Image Name','Drive Link','YOLO Person Count','YOLO Confidence','Review Status','Reviewer Comment']
+cols = ['Store Code','Date','Camera','Time','Image Name','Drive Link','YOLO Person Count','YOLO Confidence','Review Status','Reviewer Comment']
 fname = 'scan_results_' + datetime.date.today().strftime('%Y%m%d') + '.csv'
 with open(fname,'w',newline='') as f:
     w = csv.writer(f); w.writerow(cols); w.writerows(rows)
@@ -407,16 +422,16 @@ for name, dt in list_date_folders('middle-ware', 'iris/BLRRRN'): print(name, dt)
 Use one of the listed dates in your `--date` argument.
 
 ### Problem: `Store 'X' not found or inactive`
-**Cause:** Store not in `iris_yolo_stores` table or `is_active = FALSE`.
+**Cause:** Short code not in `iris_yolo_stores` table or `is_active = FALSE`. The `--store` arg now takes the **short code** (e.g. `BLRRRN`), not the store name.
 **Fix:**
 ```sql
--- Check if store exists
-SELECT store_name, is_active FROM iris_yolo_stores WHERE store_name = 'X';
+-- Check if store exists by short code
+SELECT store_s3_code, store_name, is_active FROM iris_yolo_stores WHERE store_s3_code = 'X';
 -- If missing, add it:
 INSERT INTO iris_yolo_stores (store_name, store_s3_code, s3_bucket, s3_prefix)
-VALUES ('X', 'S3CODE', 'middle-ware', 'iris/S3CODE');
+VALUES ('GoFrugal Name', 'X', 'middle-ware', 'iris/X');
 -- If inactive, reactivate:
-UPDATE iris_yolo_stores SET is_active = TRUE WHERE store_name = 'X';
+UPDATE iris_yolo_stores SET is_active = TRUE WHERE store_s3_code = 'X';
 ```
 
 ### Problem: `Found 0 images` for a known folder
@@ -454,7 +469,7 @@ Then copy `yolov8s.pt` to the server manually. Set `YOLO_MODEL_PATH=yolov8s.pt` 
 **Cause:** Bug in a previous version. Fixed in current version.
 **Fix:** Delete the affected rows and rerun:
 ```sql
-DELETE FROM iris_yolo_scan_results WHERE store = 'X' AND date = 'YYYY-MM-DD';
+DELETE FROM iris_yolo_scan_results WHERE store_code = 'SCODE' AND date = 'YYYY-MM-DD';
 ```
 Then rerun. The upsert will refill the rows with correct `drive_link`.
 
@@ -467,7 +482,7 @@ from dotenv import load_dotenv; load_dotenv()
 from s3_io import list_images
 from db import get_connection
 conn = get_connection(); cur = conn.cursor()
-cur.execute(\"SELECT COUNT(*) FROM iris_yolo_scan_results WHERE store='RRNAGAR BLR' AND date='2026-05-14' AND yolo_person_count > 0\")
+cur.execute(\"SELECT COUNT(*) FROM iris_yolo_scan_results WHERE store_code='BLRRRN' AND date='2026-05-14' AND yolo_person_count > 0\")
 db_count = cur.fetchone()[0]
 s3_count = len(list_images('middle-ware', 'iris/BLRRRN/relevant image/14-05-26'))
 print('DB relevant:', db_count, '| S3 output files:', s3_count)
@@ -542,7 +557,7 @@ python scripts/setup_db.py
 python scripts/validate_env.py
 
 # 7. Run first scan
-python run.py --store "RRNAGAR BLR" --date "$(date +%Y-%m-%d)"
+python run.py --store BLRRRN --date "$(date +%Y-%m-%d)"
 ```
 
 ### Linux: check logs
@@ -570,7 +585,7 @@ Add this line:
 
 ### Linux cron — run a specific store daily
 ```
-0 23 * * * cd /home/ubuntu/IRIS_YOLO && ./venv/bin/python run.py --store "RRNAGAR BLR" --date $(date +\%Y-\%m-\%d) >> logs/cron.log 2>&1
+0 23 * * * cd /home/ubuntu/IRIS_YOLO && ./venv/bin/python run.py --store BLRRRN --date $(date +\%Y-\%m-\%d) >> logs/cron.log 2>&1
 ```
 
 ### Check cron is running
@@ -586,7 +601,7 @@ cat logs/cron.log | tail -50
 > Everything in this section can be done without Claude or any AI.
 
 ### Add a new store (no code change)
-1. Get the store name and S3 folder code (e.g. `BLRRRN` from `iris/BLRRRN/`)
+1. Get the short code and GoFrugal name (e.g. `BLRRRN` from `iris/BLRRRN/`)
 2. Run this:
 ```powershell
 .\venv\Scripts\python.exe -c "
@@ -595,10 +610,28 @@ from db import get_connection
 conn = get_connection(); cur = conn.cursor()
 cur.execute('''INSERT INTO iris_yolo_stores (store_name, store_s3_code, s3_bucket, s3_prefix)
                VALUES (%s, %s, 'middle-ware', %s) ON CONFLICT (store_name) DO NOTHING''',
-            ('NEW STORE NAME', 'S3CODE', 'iris/S3CODE'))
+            ('GoFrugal Store Name', 'S3CODE', 'iris/S3CODE'))
 conn.commit(); print('Done'); conn.close()
 "
 ```
+Then run with: `.\venv\Scripts\python.exe run.py --store S3CODE --date 2026-05-14`
+
+### Update a store's S3 path (interactive)
+```powershell
+.\venv\Scripts\python.exe scripts/update_store_path.py --code BLRRRN --new-prefix iris/BLRRRN
+```
+
+### Download S3 output images locally
+```powershell
+.\venv\Scripts\python.exe scripts/download_output.py --code BLRRRN --date 2026-05-14 --mode s3
+```
+Images saved to `output/BLRRRN/2026-05-14/images/`
+
+### Export DB results as CSV
+```powershell
+.\venv\Scripts\python.exe scripts/download_output.py --code BLRRRN --date 2026-05-14 --mode csv
+```
+CSV saved to `output/BLRRRN/2026-05-14/scan_results_BLRRRN_2026-05-14.csv`
 
 ### Change confidence threshold
 Edit `.env` → change `YOLO_CONFIDENCE_THRESHOLD=0.25`. Re-run. Done.
@@ -609,8 +642,8 @@ Edit `.env` → change `YOLO_CONFIDENCE_THRESHOLD=0.25`. Re-run. Done.
 from dotenv import load_dotenv; load_dotenv()
 from db import get_connection
 conn = get_connection(); cur = conn.cursor()
-cur.execute('SELECT COUNT(*) FROM iris_yolo_scan_results WHERE store=%s AND date=%s',
-            ('RRNAGAR BLR','2026-05-14'))
+cur.execute('SELECT COUNT(*) FROM iris_yolo_scan_results WHERE store_code=%s AND date=%s',
+            ('BLRRRN','2026-05-14'))
 print('Rows in DB:', cur.fetchone()[0]); conn.close()
 "
 ```
@@ -625,12 +658,12 @@ See Section 6 — CSV export command. Run it, open the CSV in Excel.
 from dotenv import load_dotenv; load_dotenv()
 from db import get_connection
 conn = get_connection(); cur = conn.cursor()
-cur.execute('DELETE FROM iris_yolo_scan_results WHERE store=%s AND date=%s',
-            ('RRNAGAR BLR','2026-05-14'))
+cur.execute('DELETE FROM iris_yolo_scan_results WHERE store_code=%s AND date=%s',
+            ('BLRRRN','2026-05-14'))
 conn.commit(); print('Deleted', cur.rowcount, 'rows'); conn.close()
 "
 # Step 2: Re-run scan
-.\venv\Scripts\python.exe run.py --store "RRNAGAR BLR" --date "2026-05-14"
+.\venv\Scripts\python.exe run.py --store BLRRRN --date "2026-05-14"
 ```
 
 ### Update .env without breaking anything
@@ -650,7 +683,7 @@ Just re-run the same command. It is fully idempotent:
 - Images not yet processed will be processed fresh
 
 ```powershell
-.\venv\Scripts\python.exe run.py --store "RRNAGAR BLR" --date "2026-05-14"
+.\venv\Scripts\python.exe run.py --store BLRRRN --date "2026-05-14"
 ```
 
 ---
