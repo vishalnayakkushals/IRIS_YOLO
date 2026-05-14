@@ -17,6 +17,7 @@
 10. [Linux Server Deployment](#10-linux-server-deployment)
 11. [Cron Automation](#11-cron-automation)
 12. [What You Can Do Without Claude](#12-self-service-operations)
+13. [Pre-Deployment Checklist](#13-pre-deployment-checklist)
 
 ---
 
@@ -685,6 +686,91 @@ Just re-run the same command. It is fully idempotent:
 ```powershell
 .\venv\Scripts\python.exe run.py --store BLRRRN --date "2026-05-14"
 ```
+
+---
+
+---
+
+## 13. Pre-Deployment Checklist
+
+---
+
+### A. Before You Leave Your Machine (Windows)
+
+- [ ] All code changes pushed to GitHub (`git push origin main`)
+- [ ] `.env` file is **NOT** in GitHub (run `git status` — it must not appear)
+- [ ] `output/` folder not in GitHub (gitignored)
+- [ ] Note down all `.env` values — you will need to re-enter them on the server
+
+---
+
+### B. Server — Minimum Requirements
+
+- [ ] Linux server available (Ubuntu 20.04+ recommended)
+- [ ] At least **2 GB free disk** (PyTorch alone is ~750 MB)
+- [ ] At least **2 GB RAM**
+- [ ] Python 3.9 or higher installed (`python3 --version`)
+- [ ] Internet access on server (to clone GitHub and download packages)
+- [ ] Port 5432 outbound open (to reach AWS RDS)
+
+---
+
+### C. Server — Setup Steps
+
+```bash
+git clone https://github.com/vishalnayakkushals/IRIS_YOLO.git
+cd IRIS_YOLO
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt        # takes 5-10 min
+cp .env.example .env && nano .env      # fill in all values
+```
+
+- [ ] Repo cloned
+- [ ] venv created and activated
+- [ ] `pip install -r requirements.txt` completed with no errors
+- [ ] `.env` created and all values filled in:
+  - [ ] `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`
+  - [ ] `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`
+  - [ ] `S3_BUCKET=middle-ware`
+  - [ ] `YOLO_MODEL_PATH=yolov8s.pt`
+  - [ ] `YOLO_CONFIDENCE_THRESHOLD=0.35`
+
+---
+
+### D. Server — Verify Before First Run
+
+```bash
+python scripts/validate_env.py
+```
+
+- [ ] `[OK] All required env vars present`
+- [ ] `[OK] PostgreSQL (RDS) connection successful`
+- [ ] `[OK] AWS S3 reachable`
+- [ ] YOLO model downloaded: `ls -lh yolov8s.pt` shows ~22 MB
+- [ ] DB has stores: `python scripts/check_db.py` shows `iris_yolo_stores: 133 rows`
+
+---
+
+### E. Server — First Test Run
+
+```bash
+python run.py --store BLRRRN --date 2026-05-14
+```
+
+- [ ] Output shows images found (not 0)
+- [ ] Output shows relevant images uploaded to S3
+- [ ] No errors in terminal output
+- [ ] DB has rows: `python scripts/check_db.py`
+- [ ] Log file created: `ls logs/`
+
+---
+
+### F. Production Ready
+
+- [ ] First test run passed with no errors
+- [ ] Cron job set up for daily automation (see Section 11)
+- [ ] `logs/` folder is being written to after each run
+- [ ] Team knows the log path for monitoring
 
 ---
 
