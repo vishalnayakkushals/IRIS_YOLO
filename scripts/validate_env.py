@@ -33,8 +33,9 @@ try:
     s3 = boto3.client("s3", region_name=AWS_REGION,
                       aws_access_key_id=AWS_ACCESS_KEY_ID,
                       aws_secret_access_key=AWS_SECRET_ACCESS_KEY)
-    s3.head_bucket(Bucket=S3_BUCKET)
-    print(f"[OK] AWS S3 reachable (bucket: {S3_BUCKET}).")
+    # HeadBucket may be blocked by IAM prefix-scoped policy — use list instead
+    s3.list_objects_v2(Bucket=S3_BUCKET, Prefix="iris/", MaxKeys=1)
+    print(f"[OK] AWS S3 reachable (bucket: {S3_BUCKET}, prefix: iris/).")
 except Exception as e:
     print(f"[FAIL] AWS S3: {e}")
     sys.exit(1)
