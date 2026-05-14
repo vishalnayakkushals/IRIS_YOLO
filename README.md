@@ -22,32 +22,28 @@ cp .env.example .env
 # Edit .env with your DB + S3 settings
 
 # 4. Setup DB (run once)
-psql -U <user> -d <dbname> -f setup_db.sql
+psql -h <host> -U <user> -d iris-db -f setup_db.sql
 
-# 5. Add a store to DB (example)
-psql -U <user> -d <dbname> -c "
-INSERT INTO stores (store_name, store_s3_code, s3_input_prefix, s3_output_bucket, s3_output_prefix)
-VALUES ('RRNAGAR BLR', 'BLRRRN', 'iris/BLRRRN', 'middle-ware-output', 'RRNAGAR BLR');"
+# 5. Add a store
+psql -h <host> -U PbaAdmin -d iris-db -c "
+INSERT INTO iris_yolo_stores (store_name, store_s3_code, s3_bucket, s3_prefix)
+VALUES ('RRNAGAR BLR', 'BLRRRN', 'middle-ware', 'iris/BLRRRN');"
 
-# 6. Validate setup
+# 6. Validate
 python scripts/validate_env.py
 
-# 7. Run a store scan
+# 7. Run
 python run.py --store "RRNAGAR BLR" --date "2026-05-14"
-
-# 8. Run all active stores
-python run.py --all-stores --date "2026-05-14"
-
-# 9. Backfill a date range
-python scripts/backfill_store.py --store "RRNAGAR BLR" --from-date "2026-05-01" --to-date "2026-05-14"
 ```
 
 ## S3 Path Convention
 
 | | Format | Example |
 |---|---|---|
-| Input | `s3://<input_bucket>/iris/<store_s3_code>/<DD-MM-YY>/<filename>.jpg` | `s3://middle-ware/iris/BLRRRN/14-05-26/14-41-18_D13-1.jpg` |
-| Output | `s3://<output_bucket>/<store_name>/Relevant image/<DD-MM-YY>/<filename>.jpg` | `s3://middle-ware-output/RRNAGAR BLR/Relevant image/14-05-26/14-41-18_D13-1.jpg` |
+| Input | `s3://middle-ware/iris/<store_s3_code>/<date_folder>/<filename>.jpg` | `s3://middle-ware/iris/BLRRRN/14-05-26/14-41-18_D13-1.jpg` |
+| Output | `s3://middle-ware/iris/<store_s3_code>/relevant image/<date_folder>/<filename>.jpg` | `s3://middle-ware/iris/BLRRRN/relevant image/14-05-26/14-41-18_D13-1.jpg` |
+
+Date folder format is auto-detected (any format supported).
 
 ## Tests
 
