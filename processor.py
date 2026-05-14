@@ -1,8 +1,8 @@
 import os
 from datetime import datetime
-from utils import logger, to_s3_date, parse_filename, print_summary
+from utils import logger, parse_any_date, parse_filename, print_summary
 from store_config import load_store
-from s3_io import list_images, download_to_temp, key_exists, upload_file, build_s3_url
+from s3_io import find_date_folder, list_images, download_to_temp, key_exists, upload_file, build_s3_url
 from yolo_detector import is_relevant
 from db import upsert_scan_result
 from config import S3_BUCKET
@@ -10,22 +10,29 @@ from config import S3_BUCKET
 _RELEVANT_FOLDER = "relevant image"
 
 
-def _build_output_key(s3_prefix, date_folder, filename):
+def _build_output_key(s3_prefix: str, date_folder: str, filename: str) -> str:
     return f"{s3_prefix}/{_RELEVANT_FOLDER}/{date_folder}/{filename}"
 
 
-def process_store_date(store_name, date_str):
+def process_store_date(store_name: str, date_str: str) -> dict:
     store = load_store(store_name)
-    date_folder = to_s3_date(date_str)
-    scan_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-
     bucket = store.get("s3_bucket") or S3_BUCKET
     s3_prefix = store["s3_prefix"]
+
+    # Auto-detect the S3 folder name regardless of date format
+    date_folder = find_date_folder(bucket, s3_prefix, date_str)
+    if date_folder is None:
+        logger.warning(f"[{store_name}] No S3 folder found for date '{date_str}' under {s3_prefix}/")
+        return {"total": 0, "relevant": 0, "not_relevant": 0,
+                "uploaded": 0, "duplicate": 0, "failed": 0, "db_rows": 0}
+
+    scan_date = parse_any_date(date_str)
     input_prefix = f"{s3_prefix}/{date_folder}"
 
+    logger.info(f"[{store_name}] Matched folder '{date_folder}' for date '{date_str}'")
     logger.info(f"[{store_name}] Listing s3://{bucket}/{input_prefix}")
     image_keys = list_images(bucket, input_prefix)
-    logger.info(f"[{store_name}] Found {len(image_keys)} images for {date_str}")
+    logger.info(f"[{store_name}] Found {len(image_keys)} images")
 
     stats = {
         "total": 0, "relevant": 0, "not_relevant": 0,
